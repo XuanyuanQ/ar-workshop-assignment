@@ -4,11 +4,14 @@ using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
+using UnityEditor.XR.Management;
+using UnityEditor.XR.Management.Metadata;
 using UnityEngine;
 using UnityEngine.InputSystem.XR;
 using UnityEngine.SceneManagement;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
+using UnityEngine.XR.Management;
 
 public static class IOSBuildSetup
 {
@@ -19,6 +22,7 @@ public static class IOSBuildSetup
     private const string PlacedObjectPath = "Assets/PlacedObject.prefab";
     private const string MarkerContentPath = "Assets/SpawnedObject.prefab";
     private const string BundleIdentifier = "com.xuany.assignment1.ar";
+    private const string ARKitLoaderTypeName = "UnityEngine.XR.ARKit.ARKitLoader";
     private const string CameraUsageDescription =
         "Camera access is used to detect surfaces and reference images for this AR assignment.";
 
@@ -28,6 +32,7 @@ public static class IOSBuildSetup
         ConfigureMarkerLibrary();
         CreateCombinedScene();
         ConfigurePlayerSettings();
+        ConfigureARKitLoader();
         ConfigureBuildScenes();
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
@@ -157,6 +162,38 @@ public static class IOSBuildSetup
         PlayerSettings.SetArchitecture(BuildTargetGroup.iOS, 1);
         PlayerSettings.defaultInterfaceOrientation = UIOrientation.Portrait;
         EditorUserBuildSettings.SetPlatformSettings("iOS", "CreateXcodeProject", "true");
+    }
+
+    private static void ConfigureARKitLoader()
+    {
+        var xrSettingsAssets = AssetDatabase.FindAssets("t:XRGeneralSettingsPerBuildTarget");
+        if (xrSettingsAssets.Length == 0)
+            throw new BuildFailedException("XR Plug-in Management per-build-target settings asset is missing.");
+
+        var settingsPath = AssetDatabase.GUIDToAssetPath(xrSettingsAssets[0]);
+        var buildTargetSettings =
+            AssetDatabase.LoadAssetAtPath<XRGeneralSettingsPerBuildTarget>(settingsPath);
+        if (buildTargetSettings == null)
+            throw new BuildFailedException($"Could not load XR Plug-in Management settings: {settingsPath}");
+
+        if (!buildTargetSettings.HasManagerSettingsForBuildTarget(BuildTargetGroup.iOS))
+            buildTargetSettings.CreateDefaultManagerSettingsForBuildTarget(BuildTargetGroup.iOS);
+
+        var generalSettings = buildTargetSettings.SettingsForBuildTarget(BuildTargetGroup.iOS);
+        var managerSettings = buildTargetSettings.ManagerSettingsForBuildTarget(BuildTargetGroup.iOS);
+        if (generalSettings == null || managerSettings == null)
+            throw new BuildFailedException("Failed to create XR Plug-in Management settings for iOS.");
+
+        if (!XRPackageMetadataStore.IsLoaderAssigned(ARKitLoaderTypeName, BuildTargetGroup.iOS) &&
+            !XRPackageMetadataStore.AssignLoader(managerSettings, ARKitLoaderTypeName, BuildTargetGroup.iOS))
+        {
+            throw new BuildFailedException("Failed to assign ARKit Loader for the iOS build target.");
+        }
+
+        generalSettings.InitManagerOnStart = true;
+        EditorUtility.SetDirty(generalSettings);
+        EditorUtility.SetDirty(managerSettings);
+        EditorUtility.SetDirty(buildTargetSettings);
     }
 
     private static void ConfigureBuildScenes()
