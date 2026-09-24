@@ -7,9 +7,11 @@ using UnityEngine.XR.ARSubsystems;
 public class MarkerContentController : MonoBehaviour
 {
     [SerializeField] private GameObject contentPrefab;
+    [SerializeField] private float positionSmoothing = 8f;
+    [SerializeField] private float rotationSmoothing = 8f;
 
     private ARTrackedImageManager manager;
-    private readonly Dictionary<TrackableId, GameObject> content = new();
+    private readonly Dictionary<TrackableId, SmoothedMarkerContent> content = new();
 
     private void Awake()
     {
@@ -66,12 +68,89 @@ public class MarkerContentController : MonoBehaviour
         {
             if (!isTracking) return;
 
-            instance = Instantiate(contentPrefab, trackedImage.transform);
-            instance.transform.localPosition = Vector3.zero;
-            instance.transform.localRotation = Quaternion.identity;
+            GameObject contentObject = Instantiate(contentPrefab);
+            contentObject.transform.SetPositionAndRotation(
+                trackedImage.transform.position,
+                trackedImage.transform.rotation);
+
+            instance = contentObject.GetComponent<SmoothedMarkerContent>();
+            if (instance == null)
+                instance = contentObject.AddComponent<SmoothedMarkerContent>();
+
+            ConfigureSwipeSpinner(contentObject);
+            instance.Configure(positionSmoothing, rotationSmoothing);
             content[trackedImage.trackableId] = instance;
         }
 
-        instance.SetActive(isTracking);
+        if (isTracking)
+            instance.SetTarget(trackedImage.transform);
+
+        instance.gameObject.SetActive(isTracking);
+    }
+
+    private static void ConfigureSwipeSpinner(GameObject contentObject)
+    {
+        Transform rotationTarget = FindVisibleTopLevelModel(contentObject.transform);
+        var spinner = contentObject.GetComponent<SpinObjectOnMarker>();
+        if (spinner == null)
+            spinner = rotationTarget.GetComponent<SpinObjectOnMarker>();
+        if (spinner == null)
+            spinner = contentObject.AddComponent<SpinObjectOnMarker>();
+
+        spinner.enabled = true;
+        spinner.SetRotationTarget(rotationTarget);
+
+        foreach (var otherSpinner in contentObject.GetComponentsInChildren<SpinObjectOnMarker>(true))
+        {
+            if (otherSpinner != spinner)
+                otherSpinner.enabled = false;
+        }
+    }
+
+    private static Transform FindVisibleTopLevelModel(Transform root)
+    {
+        Renderer[] renderers = root.GetComponentsInChildren<Renderer>(false);
+        return renderers.Length > 0
+            ? GetTopLevelChild(root, renderers[0].transform)
+            : root;
+    }
+
+    private static Transform GetTopLevelChild(Transform root, Transform child)
+    {
+        Transform current = child;
+        while (current.parent != null && current.parent != root)
+            current = current.parent;
+
+        return current;
+    }
+}
+
+public class SmoothedMarkerContent : MonoBehaviour
+{
+    private Transform target;
+    private float positionSmoothing = 18f;
+    private float rotationSmoothing = 18f;
+
+    public void Configure(float targetPositionSmoothing, float targetRotationSmoothing)
+    {
+        positionSmoothing = Mathf.Max(0f, targetPositionSmoothing);
+        rotationSmoothing = Mathf.Max(0f, targetRotationSmoothing);
+    }
+
+    public void SetTarget(Transform markerTransform)
+    {
+        target = markerTransform;
+    }
+
+    private void LateUpdate()
+    {
+        if (target == null)
+            return;
+
+        float positionBlend = 1f - Mathf.Exp(-positionSmoothing * Time.deltaTime);
+        float rotationBlend = 1f - Mathf.Exp(-rotationSmoothing * Time.deltaTime);
+
+        transform.position = Vector3.Lerp(transform.position, target.position, positionBlend);
+        transform.rotation = Quaternion.Slerp(transform.rotation, target.rotation, rotationBlend);
     }
 }

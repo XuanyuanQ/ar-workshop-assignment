@@ -30,12 +30,38 @@ public static class IOSBuildSetup
     public static void ConfigureCombinedIOSBuild()
     {
         ConfigureMarkerLibrary();
+        ConfigureMarkerSpinPrefab();
         CreateCombinedScene();
         ConfigurePlayerSettings();
         ConfigureARKitLoader();
         ConfigureBuildScenes();
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
+    }
+
+    [MenuItem("Assignment/Fix Marker Swipe Spinner Prefab")]
+    public static void ConfigureMarkerSpinPrefab()
+    {
+        GameObject prefabRoot = PrefabUtility.LoadPrefabContents(MarkerContentPath);
+        try
+        {
+            Transform spinTarget = FindVisibleTopLevelModel(prefabRoot.transform);
+            foreach (var spinner in prefabRoot.GetComponentsInChildren<SpinObjectOnMarker>(true))
+            {
+                if (spinner.transform != spinTarget)
+                    Object.DestroyImmediate(spinner, true);
+            }
+
+            if (spinTarget.GetComponent<SpinObjectOnMarker>() == null)
+                spinTarget.gameObject.AddComponent<SpinObjectOnMarker>();
+
+            PrefabUtility.SaveAsPrefabAsset(prefabRoot, MarkerContentPath);
+            Debug.Log($"Marker swipe spin target set to {spinTarget.name} in {MarkerContentPath}.");
+        }
+        finally
+        {
+            PrefabUtility.UnloadPrefabContents(prefabRoot);
+        }
     }
 
     [MenuItem("Assignment/Build iOS Xcode Export")]
@@ -104,6 +130,7 @@ public static class IOSBuildSetup
         SetSerializedObjectReference(planeManager, "m_PlanePrefab", PlanePrefabPath);
         SetSerializedObjectReference(tapToPlace, "objectToPlace", PlacedObjectPath);
         SetSerializedObjectReference(tapToPlace, "raycastManager", raycastManager);
+        SetSerializedObjectReference(tapToPlace, "planeManager", planeManager);
         SetSerializedObjectReference(imageManager, "m_SerializedLibrary", MarkerLibraryPath);
         SetSerializedObjectReference(markerContent, "contentPrefab", MarkerContentPath);
         SetSerializedObjectReference(status, "planeManager", planeManager);
@@ -222,6 +249,23 @@ public static class IOSBuildSetup
             throw new FileNotFoundException($"Missing asset for {propertyName}: {assetPath}");
 
         SetSerializedObjectReference(target, propertyName, value);
+    }
+
+    private static Transform FindVisibleTopLevelModel(Transform root)
+    {
+        Renderer[] renderers = root.GetComponentsInChildren<Renderer>(false);
+        return renderers.Length > 0
+            ? GetTopLevelChild(root, renderers[0].transform)
+            : root;
+    }
+
+    private static Transform GetTopLevelChild(Transform root, Transform child)
+    {
+        Transform current = child;
+        while (current.parent != null && current.parent != root)
+            current = current.parent;
+
+        return current;
     }
 
     private static string GetCommandLineValue(string name)
